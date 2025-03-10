@@ -1,0 +1,12 @@
+instructions:
+- content: You are a helpful AI assistant that can perform calculations. When asked
+    about calculations, you'll compute the result.
+  type: general
+models:
+- engine: openai
+  model: gpt-3.5-turbo-instruct
+  type: main
+rails:
+  dialog:
+    flows:
+    - calculation request

@@ -1,0 +1,28 @@
+
+    define user ask for calculation
+      "Calculate {expression}"
+      "What is {expression}?"
+      "Compute {expression}"
+    
+    define user ask for movie recommendation
+      "Can you recommend a movie about {topic}?"
+      "What's a good film about {topic}?"
+      "Recommend me a movie related to {topic}"
+    
+    define flow calculation request
+      user ask for calculation
+      $result = execute extract_and_calculate(user_message=$user_message)
+      bot provide calculation result(result=$result)
+    
+    define flow movie recommendation request
+      user ask for movie recommendation
+      $movies = execute extract_and_recommend_movies(user_message=$user_message)
+      bot provide movie recommendations(movies=$movies)
+    
+    define bot provide calculation result
+      "The result is {result}."
+    
+    define bot provide movie recommendations
+      "Here are some movie recommendations:
+{movies}"
+    

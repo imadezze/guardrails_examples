@@ -1,0 +1,22 @@
+
+define flow check input toxicity
+  $input_toxicity = execute check_input_toxicity
+  if $input_toxicity.is_toxic
+    bot refuse to respond to toxic input
+    stop
+  else
+    pass
+
+define flow check output toxicity
+  $output_toxicity = execute check_output_toxicity
+  if $output_toxicity.is_toxic
+    bot respond with sanitized output
+    stop
+  else
+    pass
+
+define bot refuse to respond to toxic input
+  "I apologize, but I cannot respond to messages that contain toxic or harmful content. Please rephrase your question in a more respectful way."
+
+define bot respond with sanitized output
+  "I apologize, but I need to provide a more appropriate response. Let me try to answer your question in a more helpful way."

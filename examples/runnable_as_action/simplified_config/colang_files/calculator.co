@@ -1,0 +1,14 @@
+
+    define user ask for calculation
+      "Calculate {expression}"
+      "What is {expression}?"
+      "Compute {expression}"
+    
+    define flow calculation request
+      user ask for calculation
+      $result = execute extract_and_calculate(user_message=$user_message)
+      bot provide calculation result(result=$result)
+    
+    define bot provide calculation result
+      "The result is {result}."
+    

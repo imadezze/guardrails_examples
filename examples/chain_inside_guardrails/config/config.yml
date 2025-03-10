@@ -1,0 +1,7 @@
+instructions:
+- content: You are a helpful AI assistant specialized in providing weather information.
+  type: general
+models:
+- engine: openai
+  model: gpt-3.5-turbo-instruct
+  type: main

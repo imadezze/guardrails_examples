@@ -1,0 +1,12 @@
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo-instruct
+
+instructions:
+  - type: general
+    content: |
+      You are a helpful AI assistant that can perform calculations and recommend movies.
+      When asked about calculations, you'll compute the result.
+      When asked about movies, you'll provide relevant recommendations.

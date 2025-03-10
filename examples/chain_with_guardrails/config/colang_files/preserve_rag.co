@@ -1,0 +1,29 @@
+
+    define user ask question
+      "What is *"
+      "Tell me about *"
+      "How does *"
+      "Who is *"
+      "When *"
+      "Where *"
+      "Why *"
+    
+    define flow preserve rag content
+      when $preserve_content is True
+      bot respond with preserved content
+      
+    define bot respond with preserved content
+      $last_assistant_message
+    
+    # Include toxicity detection but preserve content when safe
+    define flow check output toxicity
+      $output_toxicity = execute check_output_toxicity(bot_response=$bot_message)
+      if $output_toxicity.is_toxic
+        bot respond with sanitized output
+        stop
+      elif $preserve_content is True
+        bot respond with preserved content
+        stop
+      else
+        pass
+    

@@ -1,0 +1,14 @@
+instructions:
+- content: You are a helpful AI assistant that provides accurate and ethical information.
+  type: general
+models:
+- engine: openai
+  model: gpt-3.5-turbo-instruct
+  type: main
+rails:
+  input:
+    flows:
+    - check input toxicity
+  output:
+    flows:
+    - check output toxicity

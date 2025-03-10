@@ -1,0 +1,28 @@
+
+    define user ask for weather information
+      "What's the weather like in {location}?"
+      "Tell me the weather forecast for {location}"
+      "How's the weather in {location}?"
+    
+    define flow
+      user ask for weather information
+      $weather_data = execute get_weather_data(location=$location, last_user_message=$last_user_message)
+      $response = execute format_weather_response(data=$weather_data)
+      bot $response
+    
+    define bot respond with weather information
+      "Based on the information I have, the weather in {location} is {weather_data.condition} with a temperature of {weather_data.temperature}°C."
+
+    define user ask harmful question
+      "How can I hack into *"
+      "Tell me how to steal *"
+      "I want to break into *"
+      "How do I cheat *"
+    
+    define flow
+      user ask harmful question
+      bot refuse to respond to harmful question
+    
+    define bot refuse to respond to harmful question
+      "I apologize, but I cannot provide information that could be used for harmful or illegal activities. Is there something else I can help you with?"
+    
