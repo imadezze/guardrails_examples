@@ -57,22 +57,42 @@ def validate_api_key(api_key):
 # Helper function to extract text content from response
 def extract_content(response):
     """Extract the text content from various response formats"""
+    if response is None:
+        return "No response generated."
+    
     if isinstance(response, str):
         return response
-    elif isinstance(response, dict) and 'content' in response:
-        return response['content']
-    elif isinstance(response, dict) and 'role' in response and 'content' in response:
-        return response['content']
-    else:
+    
+    # Handle dictionary responses
+    if isinstance(response, dict):
+        # Check for content field directly
+        if 'content' in response:
+            return response['content'] if response['content'] else "Empty content."
+        
+        # Check for message format with role and content
+        if 'role' in response and 'content' in response:
+            return response['content'] if response['content'] else "Empty content."
+        
+        # Handle message list format that might be returned
+        if 'messages' in response and isinstance(response['messages'], list) and len(response['messages']) > 0:
+            last_message = response['messages'][-1]
+            if isinstance(last_message, dict) and 'content' in last_message:
+                return last_message['content']
+        
+        # If we get here, try to stringify the dict
+        return str(response)
+    
+    # Try to parse JSON strings
+    if isinstance(response, str):
         try:
-            # Try to parse as JSON
             parsed = json.loads(response)
-            if isinstance(parsed, dict) and 'content' in parsed:
-                return parsed['content']
-        except:
+            if isinstance(parsed, dict):
+                return extract_content(parsed)  # Recursively process the parsed dict
+        except json.JSONDecodeError:
+            # Not JSON, return as is
             pass
     
-    # Return as is if we can't extract content
+    # Return as is for any other type
     return str(response)
 
 # Sidebar for selecting examples
@@ -747,7 +767,8 @@ elif example == "chain_with_guardrails":
                         guardrailed_response = st.session_state.rag_rails.generate(
                             messages=[{"role": "user", "content": user_input}]
                         )
-                        final_response = guardrailed_response
+                        # Extract content from guardrailed response
+                        final_response = extract_content(guardrailed_response)
                         response_type = "Sanitized (Toxic Content)"
                     elif is_knowledge_gap:
                         # If RAG can't answer, use guardrails for fallback
@@ -755,7 +776,8 @@ elif example == "chain_with_guardrails":
                         guardrailed_response = st.session_state.rag_rails.generate(
                             messages=[{"role": "user", "content": user_input}]
                         )
-                        final_response = guardrailed_response
+                        # Extract content from guardrailed response
+                        final_response = extract_content(guardrailed_response)
                         response_type = "Guardrails (Knowledge Gap)"
                     else:
                         # If RAG response is good, preserve it directly
@@ -764,13 +786,17 @@ elif example == "chain_with_guardrails":
                         final_response = raw_content
                         response_type = "RAG (Direct Content)"
                     
+                    # Store original guardrailed response for debugging
+                    original_guardrailed_response = guardrailed_response if 'guardrailed_response' in locals() else None
+                    
                     # Add response to conversation history with metadata
                     st.session_state.rag_conversation_history.append({
                         "role": "assistant", 
                         "content": final_response,
                         "metadata": {
                             "raw_response": raw_content,
-                            "response_type": response_type
+                            "response_type": response_type,
+                            "original_guardrailed_response": original_guardrailed_response
                         }
                     })
                     
@@ -791,6 +817,12 @@ elif example == "chain_with_guardrails":
                         with st.expander("Debug Information"):
                             for info in st.session_state.rag_debug_info:
                                 st.text(info)
+                            
+                            # Show guardrails response format if applicable
+                            if 'guardrailed_response' in locals():
+                                st.subheader("Guardrails Response Format")
+                                st.text(f"Type: {type(guardrailed_response)}")
+                                st.text(f"Value: {guardrailed_response}")
                             
                             # Show retrieved documents
                             st.subheader("Retrieved Documents")
