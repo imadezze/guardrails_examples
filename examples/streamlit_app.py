@@ -642,12 +642,39 @@ elif example == "chain_with_guardrails":
     # Display conversation history
     if 'rag_conversation_history' in st.session_state and st.session_state.rag_conversation_history:
         st.write("### Conversation History")
-        for i, entry in enumerate(st.session_state.rag_conversation_history):
-            if entry['role'] == 'user':
-                st.markdown(f"**You:** {entry['content']}")
+        # Track pairs of messages
+        i = 0
+        while i < len(st.session_state.rag_conversation_history):
+            if i + 1 < len(st.session_state.rag_conversation_history):
+                user_msg = st.session_state.rag_conversation_history[i]
+                assistant_msg = st.session_state.rag_conversation_history[i+1]
+                
+                if user_msg['role'] == 'user' and assistant_msg['role'] == 'assistant':
+                    st.markdown(f"**You:** {user_msg['content']}")
+                    
+                    # If we have raw and final responses stored in metadata
+                    if 'metadata' in assistant_msg and 'raw_response' in assistant_msg['metadata']:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Raw LLM Response:**")
+                            st.info(assistant_msg['metadata']['raw_response'])
+                        with col2:
+                            st.markdown("**Final Response:**")
+                            st.success(assistant_msg['content'])
+                            if 'response_type' in assistant_msg['metadata']:
+                                st.caption(f"Response Type: {assistant_msg['metadata']['response_type']}")
+                    else:
+                        # Regular display if no metadata
+                        st.markdown(f"**Assistant:** {assistant_msg['content']}")
+                    
+                    st.markdown("---")
+                
+                i += 2
             else:
-                st.markdown(f"**Assistant:** {entry['content']}")
-            st.markdown("---")
+                # Handle odd number of messages
+                st.markdown(f"**{st.session_state.rag_conversation_history[i]['role'].title()}:** {st.session_state.rag_conversation_history[i]['content']}")
+                st.markdown("---")
+                i += 1
     
     # Submit button
     if st.button("Submit", key="rag_submit_button") and user_input:
@@ -737,14 +764,21 @@ elif example == "chain_with_guardrails":
                         final_response = raw_content
                         response_type = "RAG (Direct Content)"
                     
-                    # Add response to conversation history
-                    st.session_state.rag_conversation_history.append({"role": "assistant", "content": final_response})
+                    # Add response to conversation history with metadata
+                    st.session_state.rag_conversation_history.append({
+                        "role": "assistant", 
+                        "content": final_response,
+                        "metadata": {
+                            "raw_response": raw_content,
+                            "response_type": response_type
+                        }
+                    })
                     
-                    # Create columns for layout
+                    # Create columns for layout - for current response
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.subheader("Raw RAG Response")
+                        st.subheader("Raw LLM Response")
                         st.info(raw_content)
                         
                     with col2:
