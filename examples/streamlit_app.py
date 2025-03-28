@@ -655,11 +655,64 @@ elif example == "chain_with_guardrails":
             try:
                 config_dir = Path(__file__).resolve().parent / example / "config"
                 st.session_state.rag_config = RailsConfig.from_path(str(config_dir))
-                st.session_state.rag_rails = LLMRails(config=st.session_state.rag_config)
+                
+                # Add additional configuration for knowledge gap handling
+                knowledge_gap_instruction = """
+                You are an assistant specialized in space exploration topics.
+                When asked about topics not in your knowledge base:
+                1. Clearly state that you don't have information on that specific topic
+                2. Mention you can answer questions about the Moon, Mars, Jupiter, and general space exploration
+                3. Be helpful and suggest the user ask about topics you can address
+                
+                Your knowledge base only includes information about:
+                - General space exploration concepts
+                - The Moon's characteristics and orbit
+                - Mars' composition and features
+                - Jupiter's size and composition
+                """
+
+                # Add instruction for harmful content
+                harmful_content_instruction = """
+                When the user asks about harmful topics like hacking, illegal activities, or creating weapons:
+                1. Politely refuse to provide such information
+                2. Explain that you are designed to be helpful, harmless, and honest
+                3. Suggest asking about space exploration topics instead
+                
+                For example, if asked "How do I hack a website?", respond with:
+                "I cannot provide information on hacking or unauthorized access to systems. 
+                These activities are illegal and unethical. Instead, I'd be happy to answer 
+                questions about space exploration, such as information about the Moon, Mars, or Jupiter."
+                """
+                
+                # Create enhanced config with additional instructions
+                enhanced_config = st.session_state.rag_config
+                if not hasattr(enhanced_config, 'instructions'):
+                    enhanced_config.instructions = []
+                
+                # Add knowledge gap handling instruction
+                enhanced_config.instructions.append({
+                    "type": "general",
+                    "content": knowledge_gap_instruction
+                })
+                
+                # Add harmful content instruction
+                enhanced_config.instructions.append({
+                    "type": "general",
+                    "content": harmful_content_instruction
+                })
+                
+                st.session_state.rag_rails = LLMRails(config=enhanced_config)
                 
                 # Register the actions
                 st.session_state.rag_rails.register_action(check_input_toxicity, name="check_input_toxicity")
                 st.session_state.rag_rails.register_action(check_output_toxicity, name="check_output_toxicity")
+                
+                # Configure the guardrails LLM with the selected model and temperature
+                st.session_state.rag_rails.llm = ChatOpenAI(
+                    model=guardrails_model if 'guardrails_model' in locals() else "gpt-3.5-turbo",
+                    temperature=guardrails_temperature if 'guardrails_temperature' in locals() else 0.7,
+                    openai_api_key=openai_api_key
+                )
             except Exception as e:
                 error_msg = f"Error loading guardrails configuration: {str(e)}"
                 st.error(error_msg)
@@ -763,14 +816,26 @@ elif example == "chain_with_guardrails":
                     # Check if the RAG response is "I don't know" or equivalent
                     is_knowledge_gap = any(phrase in raw_content.lower() for phrase in ["i don't know", "don't have information", "cannot answer"])
                     
-                    # Check for toxicity
-                    toxicity_result = asyncio.run(check_output_toxicity(raw_content))
-                    st.session_state.rag_debug_info.append(f"Is content toxic: {toxicity_result['is_toxic']}")
+                    # Check for toxicity in the *input* - this is critical for properly attributing guardrails
+                    input_toxicity_result = asyncio.run(check_input_toxicity(user_input))
+                    # Also check output toxicity as before
+                    output_toxicity_result = asyncio.run(check_output_toxicity(raw_content))
+                    
+                    st.session_state.rag_debug_info.append(f"Is input toxic: {input_toxicity_result['is_toxic']}")
+                    st.session_state.rag_debug_info.append(f"Is output toxic: {output_toxicity_result['is_toxic']}")
                     
                     # Apply guardrails based on response analysis
-                    if toxicity_result["is_toxic"]:
-                        # If toxic, let guardrails sanitize it
-                        st.session_state.rag_debug_info.append("Content is toxic, using guardrails to sanitize")
+                    if input_toxicity_result["is_toxic"] or output_toxicity_result["is_toxic"]:
+                        # If input or output is toxic, let guardrails sanitize it
+                        st.session_state.rag_debug_info.append("Input or content is toxic, using guardrails to sanitize")
+                        
+                        # Configure the guardrails LLM with the selected model and temperature
+                        st.session_state.rag_rails.llm = ChatOpenAI(
+                            model=guardrails_model,
+                            temperature=guardrails_temperature,
+                            openai_api_key=openai_api_key
+                        )
+                        
                         guardrailed_response = st.session_state.rag_rails.generate(
                             messages=[{"role": "user", "content": user_input}]
                         )
@@ -780,11 +845,32 @@ elif example == "chain_with_guardrails":
                     elif is_knowledge_gap:
                         # If RAG can't answer, use guardrails for fallback
                         st.session_state.rag_debug_info.append("Knowledge gap detected, using guardrails to provide response")
+                        
+                        # Configure the guardrails LLM with the selected model and temperature
+                        st.session_state.rag_rails.llm = ChatOpenAI(
+                            model=guardrails_model,
+                            temperature=guardrails_temperature,
+                            openai_api_key=openai_api_key
+                        )
+                        
                         guardrailed_response = st.session_state.rag_rails.generate(
                             messages=[{"role": "user", "content": user_input}]
                         )
                         # Extract content from guardrailed response
-                        final_response = extract_content(guardrailed_response)
+                        extracted_content = extract_content(guardrailed_response)
+                        
+                        # Check if we got an empty response from guardrails
+                        if extracted_content == "Empty content." or not extracted_content.strip():
+                            # Provide a proper fallback response
+                            final_response = (
+                                "I don't have information about that in my space exploration knowledge base. "
+                                "I can answer questions about the Moon, Mars, Jupiter, and general space exploration topics "
+                                "covered in my knowledge base, but I don't have information about this specific topic."
+                            )
+                            st.session_state.rag_debug_info.append("Guardrails returned empty content, using custom fallback message")
+                        else:
+                            final_response = extracted_content
+                        
                         response_type = "Guardrails (Knowledge Gap)"
                     else:
                         # If RAG response is good, preserve it directly
