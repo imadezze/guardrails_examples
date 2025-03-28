@@ -12,6 +12,7 @@ from pathlib import Path
 import traceback
 import re
 import json
+import asyncio
 from openai import OpenAIError
 from typing import Dict, List, Any
 
@@ -20,10 +21,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Import necessary libraries for the examples
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from nemoguardrails import RailsConfig, LLMRails
 from nemoguardrails.actions import action
 from langchain.schema.output_parser import OutputParserException
+from langchain.schema.runnable import RunnableParallel, RunnablePassthrough
+from langchain_community.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain.schema import Document
 
 # Set page configuration
 st.set_page_config(
@@ -48,6 +54,27 @@ def validate_api_key(api_key):
     
     return cleaned_key
 
+# Helper function to extract text content from response
+def extract_content(response):
+    """Extract the text content from various response formats"""
+    if isinstance(response, str):
+        return response
+    elif isinstance(response, dict) and 'content' in response:
+        return response['content']
+    elif isinstance(response, dict) and 'role' in response and 'content' in response:
+        return response['content']
+    else:
+        try:
+            # Try to parse as JSON
+            parsed = json.loads(response)
+            if isinstance(parsed, dict) and 'content' in parsed:
+                return parsed['content']
+        except:
+            pass
+    
+    # Return as is if we can't extract content
+    return str(response)
+
 # Sidebar for selecting examples
 st.sidebar.title("NeMo Guardrails Examples")
 example = st.sidebar.selectbox(
@@ -70,7 +97,7 @@ example_descriptions = {
     "chain_inside_guardrails": "Registers a LangChain chain as an action within a guardrails flow",
     "langsmith_integration": "Integrates LangSmith for monitoring and debugging",
     "runnable_rails": "Uses the core interface to wrap LangChain components with Guardrails",
-    "chain_with_guardrails": "Implements a comprehensive conversation chain",
+    "chain_with_guardrails": "Implements a comprehensive conversation chain with RAG for space exploration",
     "runnable_as_action": "Registers a LangChain chain as an action to be invoked within a flow"
 }
 
@@ -439,8 +466,8 @@ elif example == "chain_inside_guardrails":
                     # Reset debug info for next query
                     st.session_state.debug_info = []
                     
-                    # Force a rerun to update the conversation history display
-                    st.experimental_rerun()
+                    # Use st.rerun() instead of experimental_rerun
+                    st.rerun()
                 
                 except OpenAIError as e:
                     st.error(f"OpenAI API Error: {str(e)}")
@@ -461,7 +488,335 @@ elif example == "chain_inside_guardrails":
     # Clear conversation button
     if st.button("Clear Conversation", key="clear_conversation") and 'conversation_history' in st.session_state:
         st.session_state.conversation_history = []
-        st.experimental_rerun()
+        # Use st.rerun() instead of experimental_rerun
+        st.rerun()
+
+# Chain With Guardrails example
+elif example == "chain_with_guardrails":
+    # Define the sample document for knowledge base
+    SAMPLE_DOCUMENT = """
+    # Space Exploration
+    
+    Space exploration is the use of astronomy and space technology to explore outer space. 
+    While the exploration of space is currently carried out mainly by astronomers with telescopes, 
+    its physical exploration is conducted both by uncrewed robotic space probes and human spaceflight.
+    
+    ## The Moon
+    
+    The Moon is Earth's only natural satellite. It orbits at an average distance of 384,400 km, 
+    about 30 times Earth's diameter. The Moon always presents the same face to Earth, 
+    because gravitational pull has locked its rotation to its orbital period.
+    
+    ## Mars
+    
+    Mars is the fourth planet from the Sun and the second-smallest planet in the Solar System, 
+    larger only than Mercury. In the English language, Mars is named for the Roman god of war.
+    Mars is a terrestrial planet with a thin atmosphere, and has a crust primarily composed of 
+    elements similar to Earth's crust, as well as a core made of iron and nickel.
+    
+    ## Jupiter
+    
+    Jupiter is the fifth planet from the Sun and the largest in the Solar System. 
+    It is a gas giant with a mass more than two and a half times that of all the other 
+    planets in the Solar System combined, and slightly less than one one-thousandth 
+    the mass of the Sun.
+    """
+    
+    # Define toxicity check actions
+    @action(name="check_input_toxicity")
+    async def check_input_toxicity(user_input: str = "") -> Dict[str, bool]:
+        """
+        Check if the input text is toxic.
+        """
+        harmful_keywords = [
+            "hack", "steal", "illegal", "bomb", "kill", "hurt", "attack",
+            "exploit", "cheat", "fraud", "weapon", "violent", "abuse"
+        ]
+        
+        input_lower = user_input.lower()
+        is_toxic = any(keyword in input_lower for keyword in harmful_keywords)
+        
+        return {"is_toxic": is_toxic}
+    
+    @action(name="check_output_toxicity")
+    async def check_output_toxicity(bot_response: str = "") -> Dict[str, bool]:
+        """
+        Check if the output text is toxic.
+        """
+        harmful_keywords = [
+            "hack", "steal", "illegal", "bomb", "kill", "hurt", "attack",
+            "exploit", "cheat", "fraud", "weapon", "violent", "abuse"
+        ]
+        
+        output_lower = bot_response.lower()
+        is_toxic = any(keyword in output_lower for keyword in harmful_keywords)
+        
+        return {"is_toxic": is_toxic}
+    
+    # User input section
+    st.write("### Space Exploration Assistant with RAG")
+    st.write("Ask questions about space, planets, and space exploration. Try both in-context questions (about the Moon, Mars, Jupiter) and out-of-context questions to see how guardrails handle them.")
+    
+    user_input = st.text_area("Enter your question:", 
+                             placeholder="Example: What is the Moon?", 
+                             height=100)
+    
+    # Model selection for RAG system
+    rag_model = st.sidebar.selectbox(
+        "RAG System Model",
+        ["gpt-3.5-turbo", "gpt-4", "gpt-4o-mini"],
+        key="rag_model"
+    )
+    
+    # Model selection for guardrails
+    guardrails_model = st.sidebar.selectbox(
+        "Guardrails Model",
+        ["gpt-3.5-turbo", "gpt-4", "gpt-4o-mini"],
+        key="guardrails_model"
+    )
+    
+    # Temperature settings
+    rag_temperature = st.sidebar.slider("RAG Temperature", 
+                                      min_value=0.0, 
+                                      max_value=1.0, 
+                                      value=0.3, 
+                                      step=0.1,
+                                      key="rag_temp")
+    
+    guardrails_temperature = st.sidebar.slider("Guardrails Temperature", 
+                                             min_value=0.0, 
+                                             max_value=1.0, 
+                                             value=0.7, 
+                                             step=0.1,
+                                             key="guardrails_temp")
+    
+    # Initialize conversation history and knowledge base
+    if "example" not in st.session_state or st.session_state.example != example:
+        st.session_state.rag_conversation_history = []
+        st.session_state.example = example
+        st.session_state.rag_debug_info = []
+    
+    # Initialize the knowledge base and RAG components if they don't exist
+    if "rag_knowledge_base" not in st.session_state:
+        with st.spinner("Setting up knowledge base..."):
+            try:
+                # Set up the knowledge base
+                docs = [Document(page_content=SAMPLE_DOCUMENT)]
+                
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=500,
+                    chunk_overlap=50
+                )
+                
+                split_docs = text_splitter.split_documents(docs)
+                
+                # Create embeddings and a vector store
+                embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+                db = FAISS.from_documents(split_docs, embeddings)
+                
+                # Save in session state
+                st.session_state.rag_knowledge_base = db
+            except Exception as e:
+                error_msg = f"Error setting up knowledge base: {str(e)}"
+                st.error(error_msg)
+                if debug_mode:
+                    st.code(traceback.format_exc())
+    
+    # Load the guardrails configuration
+    if "rag_rails" not in st.session_state or st.session_state.example != example:
+        with st.spinner("Loading guardrails configuration..."):
+            try:
+                config_dir = Path(__file__).resolve().parent / example / "config"
+                st.session_state.rag_config = RailsConfig.from_path(str(config_dir))
+                st.session_state.rag_rails = LLMRails(config=st.session_state.rag_config)
+                
+                # Register the actions
+                st.session_state.rag_rails.register_action(check_input_toxicity, name="check_input_toxicity")
+                st.session_state.rag_rails.register_action(check_output_toxicity, name="check_output_toxicity")
+            except Exception as e:
+                error_msg = f"Error loading guardrails configuration: {str(e)}"
+                st.error(error_msg)
+                if debug_mode:
+                    st.code(traceback.format_exc())
+    
+    # Display conversation history
+    if 'rag_conversation_history' in st.session_state and st.session_state.rag_conversation_history:
+        st.write("### Conversation History")
+        for i, entry in enumerate(st.session_state.rag_conversation_history):
+            if entry['role'] == 'user':
+                st.markdown(f"**You:** {entry['content']}")
+            else:
+                st.markdown(f"**Assistant:** {entry['content']}")
+            st.markdown("---")
+    
+    # Submit button
+    if st.button("Submit", key="rag_submit_button") and user_input:
+        # Check if OpenAI API key is provided
+        if not openai_api_key:
+            st.error("Please enter your OpenAI API key in the sidebar.")
+        else:
+            with st.spinner("Generating response..."):
+                try:
+                    # Add user message to conversation history
+                    if 'rag_conversation_history' not in st.session_state:
+                        st.session_state.rag_conversation_history = []
+                    
+                    st.session_state.rag_conversation_history.append({"role": "user", "content": user_input})
+                    
+                    # Create a retriever
+                    retriever = st.session_state.rag_knowledge_base.as_retriever(
+                        search_type="similarity",
+                        search_kwargs={"k": 3}
+                    )
+                    
+                    # Create a RAG prompt
+                    template = """You are a helpful assistant answering questions about space exploration.
+                    Answer the question based on the context provided.
+                    
+                    If the context doesn't contain the information needed to answer the question, or if the question is not
+                    based on the context, say that you don't know instead of making up an answer.
+                    
+                    Context:
+                    {context}
+                    
+                    User Question: {question}
+                    
+                    Answer:"""
+                    
+                    prompt = ChatPromptTemplate.from_template(template)
+                    
+                    # Initialize the LLM
+                    llm = ChatOpenAI(
+                        model=rag_model,
+                        temperature=rag_temperature,
+                        openai_api_key=openai_api_key
+                    )
+                    
+                    # Create the RAG chain
+                    rag_chain = (
+                        RunnableParallel({
+                            "context": retriever,
+                            "question": RunnablePassthrough()
+                        })
+                        | prompt
+                        | llm
+                    )
+                    
+                    # Get the raw RAG response
+                    rag_response = rag_chain.invoke(user_input)
+                    raw_content = rag_response.content if hasattr(rag_response, 'content') else str(rag_response)
+                    
+                    # Check if the RAG response is "I don't know" or equivalent
+                    is_knowledge_gap = any(phrase in raw_content.lower() for phrase in ["i don't know", "don't have information", "cannot answer"])
+                    
+                    # Check for toxicity
+                    toxicity_result = asyncio.run(check_output_toxicity(raw_content))
+                    st.session_state.rag_debug_info.append(f"Is content toxic: {toxicity_result['is_toxic']}")
+                    
+                    # Apply guardrails based on response analysis
+                    if toxicity_result["is_toxic"]:
+                        # If toxic, let guardrails sanitize it
+                        st.session_state.rag_debug_info.append("Content is toxic, using guardrails to sanitize")
+                        guardrailed_response = st.session_state.rag_rails.generate(
+                            messages=[{"role": "user", "content": user_input}]
+                        )
+                        final_response = guardrailed_response
+                        response_type = "Sanitized (Toxic Content)"
+                    elif is_knowledge_gap:
+                        # If RAG can't answer, use guardrails for fallback
+                        st.session_state.rag_debug_info.append("Knowledge gap detected, using guardrails to provide response")
+                        guardrailed_response = st.session_state.rag_rails.generate(
+                            messages=[{"role": "user", "content": user_input}]
+                        )
+                        final_response = guardrailed_response
+                        response_type = "Guardrails (Knowledge Gap)"
+                    else:
+                        # If RAG response is good, preserve it directly
+                        st.session_state.rag_debug_info.append("Response is good, preserving RAG content directly")
+                        # Since we can't set context variables, we'll just use the raw content directly
+                        final_response = raw_content
+                        response_type = "RAG (Direct Content)"
+                    
+                    # Add response to conversation history
+                    st.session_state.rag_conversation_history.append({"role": "assistant", "content": final_response})
+                    
+                    # Create columns for layout
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.subheader("Raw RAG Response")
+                        st.info(raw_content)
+                        
+                    with col2:
+                        st.subheader("Final Response")
+                        st.success(final_response)
+                        st.caption(f"Response Type: {response_type}")
+                    
+                    # Show debug information
+                    if debug_mode and st.session_state.rag_debug_info:
+                        with st.expander("Debug Information"):
+                            for info in st.session_state.rag_debug_info:
+                                st.text(info)
+                            
+                            # Show retrieved documents
+                            st.subheader("Retrieved Documents")
+                            retrieved_docs = retriever.invoke(user_input)
+                            for i, doc in enumerate(retrieved_docs):
+                                st.markdown(f"**Document {i+1}:**")
+                                st.code(doc.page_content)
+                    
+                    # Reset debug info for next query
+                    st.session_state.rag_debug_info = []
+                    
+                    # Use st.rerun() to update the conversation history display
+                    st.rerun()
+                
+                except OpenAIError as e:
+                    st.error(f"OpenAI API Error: {str(e)}")
+                    st.warning("This may be due to an invalid API key, rate limits, or service disruption.")
+                    if debug_mode:
+                        st.code(traceback.format_exc())
+                
+                except Exception as e:
+                    st.error(f"An error occurred: {str(e)}")
+                    if debug_mode:
+                        st.code(traceback.format_exc())
+                    else:
+                        st.info("Enable Debug Mode in the sidebar for more details.")
+    else:
+        if not openai_api_key and st.button("Submit", key="rag_api_key_reminder_button"):
+            st.error("Please enter your OpenAI API key in the sidebar.")
+    
+    # Add examples for the user to try
+    with st.expander("Try these example questions"):
+        example_questions = [
+            "What is the Moon?",
+            "How far is the Moon from Earth?",
+            "What is Mars made of?",
+            "How big is Jupiter?",
+            "What is the theory of relativity?",
+            "Who invented the internet?",
+            "Is the Moon made of cheese?",
+            "How do I hack a website?"
+        ]
+        
+        for q in example_questions:
+            if st.button(q, key=f"example_{q}"):
+                # Set the question in the text area
+                # Note: This is a workaround since we can't directly set the value
+                st.session_state.rag_question = q
+                st.rerun()
+    
+    # Handle example question selection
+    if 'rag_question' in st.session_state:
+        # This will be executed after rerun
+        user_input = st.session_state.rag_question
+        del st.session_state.rag_question  # Clear it to avoid loop
+    
+    # Clear conversation button
+    if st.button("Clear Conversation", key="rag_clear_conversation") and 'rag_conversation_history' in st.session_state:
+        st.session_state.rag_conversation_history = []
+        st.rerun()
 
 # Placeholder for other examples
 else:

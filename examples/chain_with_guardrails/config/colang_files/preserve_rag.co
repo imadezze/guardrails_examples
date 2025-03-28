@@ -1,4 +1,3 @@
-
     define user ask question
       "What is *"
       "Tell me about *"
@@ -10,10 +9,20 @@
     
     define flow preserve rag content
       when $preserve_content is True
-      bot respond with preserved content
+        bot respond with preserved content
       
     define bot respond with preserved content
       $last_assistant_message
+    
+    # Input toxicity check flow
+    define flow check input toxicity
+      $input_toxicity = execute check_input_toxicity(user_input=$user_message)
+      if $input_toxicity.is_toxic
+        bot refuse to respond
+        stop
+      
+    define bot refuse to respond
+      "I'm sorry, but I cannot respond to that request as it may involve harmful content."
     
     # Include toxicity detection but preserve content when safe
     define flow check output toxicity
@@ -21,9 +30,16 @@
       if $output_toxicity.is_toxic
         bot respond with sanitized output
         stop
-      elif $preserve_content is True
+      
+      if $preserve_content is True
         bot respond with preserved content
         stop
-      else
-        pass
+      
+      # If we get here, neither condition matched
+      # Default pass-through
+      pass
+    
+    # Define sanitized output response
+    define bot respond with sanitized output
+      "I apologize, but I cannot provide the requested information as it may contain harmful content."
     
