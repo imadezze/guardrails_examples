@@ -577,9 +577,16 @@ elif example == "chain_with_guardrails":
     st.write("### Space Exploration Assistant with RAG")
     st.write("Ask questions about space, planets, and space exploration. Try both in-context questions (about the Moon, Mars, Jupiter) and out-of-context questions to see how guardrails handle them.")
     
+    # Use session state to manage the input field value
+    if 'rag_input' not in st.session_state:
+        st.session_state.rag_input = ""
+    
+    # Create the text area with the session state value
     user_input = st.text_area("Enter your question:", 
+                             value=st.session_state.rag_input,
                              placeholder="Example: What is the Moon?", 
-                             height=100)
+                             height=100,
+                             key="rag_input_area")
     
     # Model selection for RAG system
     rag_model = st.sidebar.selectbox(
@@ -866,22 +873,23 @@ elif example == "chain_with_guardrails":
             "How do I hack a website?"
         ]
         
-        for q in example_questions:
-            if st.button(q, key=f"example_{q}"):
-                # Set the question in the text area
-                # Note: This is a workaround since we can't directly set the value
-                st.session_state.rag_question = q
-                st.rerun()
-    
-    # Handle example question selection
-    if 'rag_question' in st.session_state:
-        # This will be executed after rerun
-        user_input = st.session_state.rag_question
-        del st.session_state.rag_question  # Clear it to avoid loop
+        # Create two columns to display example questions in two rows
+        col1, col2 = st.columns(2)
+        
+        for i, q in enumerate(example_questions):
+            # Alternate between columns
+            with col1 if i % 2 == 0 else col2:
+                if st.button(q, key=f"example_{q}"):
+                    # Directly update the session state value
+                    st.session_state.rag_input = q
+                    # Add rerun to update the UI immediately with one click
+                    st.rerun()
     
     # Clear conversation button
     if st.button("Clear Conversation", key="rag_clear_conversation") and 'rag_conversation_history' in st.session_state:
         st.session_state.rag_conversation_history = []
+        # Also clear the input field
+        st.session_state.rag_input = ""
         st.rerun()
 
 # Placeholder for other examples
