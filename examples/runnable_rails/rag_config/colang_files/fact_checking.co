@@ -1,0 +1,9 @@
+
+define flow fact check response
+  $has_hallucination = execute check_for_hallucinations(generation=$generation, context=$context)
+  if $has_hallucination
+    bot respond with factual limitation
+    stop
+  
+define bot respond with factual limitation
+  "I don't have enough information in the provided context to answer that question with certainty. I can only tell you what's mentioned in the available information: {context}"

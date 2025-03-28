@@ -1,0 +1,18 @@
+
+define flow check input toxicity
+  $toxicity = execute check_input_toxicity(messages=$messages)
+  if $toxicity.is_toxic
+    bot refuse to respond due to harmful content
+    stop
+
+define flow check output toxicity
+  $toxicity = execute check_output_toxicity(content=$generation)
+  if $toxicity.is_toxic
+    bot provide compliant response
+    stop
+
+define bot refuse to respond due to harmful content
+  "I apologize, but I cannot respond to content related to harmful topics."
+
+define bot provide compliant response
+  "I apologize, but I cannot provide the information you're looking for as it may contain harmful content."

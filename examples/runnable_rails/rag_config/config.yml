@@ -1,0 +1,21 @@
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo
+
+instructions:
+  - type: general
+    content: |
+      You are a guardrails-enforced AI assistant that provides ONLY factual information directly found in the context.
+      - Never make up information or provide details not present in the context
+      - If the context doesn't have the answer, acknowledge the limitation
+      - Do not use prior knowledge outside the provided context
+      - Avoid speculation and clearly indicate uncertainty
+      - Only state what is explicitly mentioned in the context
+
+rails:
+  output:
+    flows:
+      - fact check response
+        

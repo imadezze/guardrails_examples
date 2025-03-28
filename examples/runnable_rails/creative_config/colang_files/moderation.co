@@ -1,0 +1,11 @@
+
+define flow moderate creative content
+  $is_harmful = execute check_content_moderation(content=$generation)
+  if $is_harmful
+    bot respond with appropriate alternative
+    stop
+  
+define bot respond with appropriate alternative
+  "I'd be happy to write a creative story, but I need to make sure it's appropriate and positive. Let me provide an alternative that captures the essence in a more family-friendly way. 
+  
+  [Family-friendly alternative story]"

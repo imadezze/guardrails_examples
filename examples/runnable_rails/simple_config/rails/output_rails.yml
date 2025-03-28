@@ -1,0 +1,6 @@
+
+rails:
+  output:
+    flows:
+      - check output toxicity
+        

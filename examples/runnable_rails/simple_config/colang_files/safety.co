@@ -1,0 +1,9 @@
+
+define flow check message toxicity
+  $toxicity = execute check_toxicity(text=$user_message)
+  if $toxicity.is_toxic
+    bot refuse to respond due to harmful content
+    stop
+
+define bot refuse to respond due to harmful content
+  "I apologize, but I cannot respond to content related to harmful topics."

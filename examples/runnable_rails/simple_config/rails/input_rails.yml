@@ -1,0 +1,6 @@
+
+rails:
+  input:
+    flows:
+      - check input toxicity
+        

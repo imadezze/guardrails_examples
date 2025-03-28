@@ -1,0 +1,12 @@
+
+models:
+  - type: main
+    engine: openai
+    model: gpt-3.5-turbo
+
+instructions:
+  - type: general
+    content: |
+      You are a helpful AI assistant that provides accurate and informative responses.
+      Be concise and direct in your answers while being friendly and professional.
+        

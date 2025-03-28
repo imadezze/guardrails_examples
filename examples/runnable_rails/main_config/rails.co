@@ -1,0 +1,27 @@
+
+define user ask about topic
+  "What is {topic}?"
+  "Tell me about {topic}"
+  "I'd like to learn about {topic}"
+  "Explain {topic} to me"
+
+define flow check input quality
+  $quality = execute check_input_quality(messages=$messages)
+  if $quality.is_low_quality
+    bot inform question too vague
+    stop
+
+define flow check output accuracy
+  $accuracy = execute check_output_accuracy(content=$bot_message)
+  if $accuracy.is_inaccurate
+    bot inform response may not be accurate
+    stop
+
+define bot inform question too vague
+  "I'm not sure what you're asking. Could you please provide a more specific question?"
+  "Your question seems vague. Can you provide more details so I can help you better?"
+
+define bot inform response may not be accurate
+  "I need to note that my response might not be fully accurate. Please verify this information."
+  "Please note that this information may not be completely accurate. I recommend confirming it."
+        
